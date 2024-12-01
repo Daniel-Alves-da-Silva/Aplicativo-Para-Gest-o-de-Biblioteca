@@ -1,0 +1,101 @@
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, Button, FlatList, AsyncStorage } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { createStackNavigator } from '@react-navigation/stack';
+
+// Stack Navigator Setup
+const Stack = createStackNavigator();
+
+const App = () => {
+  const [titulo, setTitulo] = useState('');
+  const [autor, setAutor] = useState('');
+  const [livros, setLivros] = useState([]);
+
+  // Função para carregar os livros do AsyncStorage
+  const loadLivros = async () => {
+    try {
+      const livrosSalvos = await AsyncStorage.getItem('livros');
+      if (livrosSalvos) {
+        setLivros(JSON.parse(livrosSalvos));
+      }
+    } catch (error) {
+      console.error('Erro ao carregar os livros:', error);
+    }
+  };
+
+  // Função para adicionar um novo livro
+  const addLivro = async () => {
+    if (titulo && autor) {
+      const novoLivro = { id: Date.now().toString(), titulo, autor };
+      const updatedLivros = [...livros, novoLivro];
+      
+      try {
+        await AsyncStorage.setItem('livros', JSON.stringify(updatedLivros));
+        setLivros(updatedLivros);
+        setTitulo('');
+        setAutor('');
+      } catch (error) {
+        console.error('Erro ao salvar o livro:', error);
+      }
+    }
+  };
+
+  // Função para buscar livros de uma API remota (simulada)
+  const fetchLivrosRemotos = async () => {
+    try {
+      const response = await fetch('https://api.exemplo.com/livros'); // Substitua pela URL da API real
+      const data = await response.json();
+      setLivros(data);
+    } catch (error) {
+      console.error('Erro ao buscar livros remotos:', error);
+    }
+  };
+
+  // Carregar livros ao iniciar o aplicativo
+  useEffect(() => {
+    loadLivros();
+  }, []);
+
+  // Tela Principal com a lista de livros e campos para adicionar
+  const HomeScreen = () => (
+    <View style={{ padding: 20 }}>
+      <Text style={{ fontSize: 24, marginBottom: 20 }}>Gestão de Biblioteca</Text>
+
+      <TextInput
+        placeholder="Título do livro"
+        value={titulo}
+        onChangeText={setTitulo}
+        style={{ borderWidth: 1, padding: 10, marginBottom: 10 }}
+      />
+      <TextInput
+        placeholder="Autor do livro"
+        value={autor}
+        onChangeText={setAutor}
+        style={{ borderWidth: 1, padding: 10, marginBottom: 20 }}
+      />
+      <Button title="Adicionar Livro" onPress={addLivro} />
+      <Button title="Buscar Livros Remotos" onPress={fetchLivrosRemotos} />
+
+      <FlatList
+        data={livros}
+        keyExtractor={item => item.id}
+        renderItem={({ item }) => (
+          <View style={{ padding: 10, borderBottomWidth: 1 }}>
+            <Text>{item.titulo}</Text>
+            <Text>{item.autor}</Text>
+          </View>
+        )}
+      />
+    </View>
+  );
+
+  return (
+    <NavigationContainer>
+      <Stack.Navigator initialRouteName="Home">
+        <Stack.Screen name="Home" component={HomeScreen} />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+};
+
+export default App;
