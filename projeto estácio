@@ -1,233 +1,157 @@
+// App.js (React Native Front-end)
+
 import React, { useState, useEffect } from 'react';
-import { View, Text, Button, Modal, FlatList, TextInput, StyleSheet, AsyncStorage } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
-import SQLite from 'react-native-sqlite-storage'; // SQLite para persistência
-import axios from 'axios'; // Axios para conexão com a API
-import auth from '@react-native-firebase/auth'; // Firebase Authentication
+import { View, Text, Button, FlatList, TextInput, StyleSheet, Modal } from 'react-native';
+import axios from 'axios';
+import auth from '@react-native-firebase/auth';
 
-// Função para calcular a data de devolução (20 dias após o empréstimo)
-const calcularDataDevolucao = () => {
-  const hoje = new Date();
-  hoje.setDate(hoje.getDate() + 20); // Adiciona 20 dias à data atual
-  return hoje.toLocaleDateString();
-};
-
-// Conectar ao banco SQLite
-const db = SQLite.openDatabase(
-  { name: 'livros.db', location: 'default' },
-  () => { console.log('Banco de dados aberto com sucesso!'); },
-  (err) => { console.error('Erro ao abrir banco de dados', err); }
-);
-
-// Criar tabela de livros se não existir
-const criarTabelaLivros = () => {
-  db.transaction((tx) => {
-    tx.executeSql(
-      'CREATE TABLE IF NOT EXISTS livros (id TEXT PRIMARY KEY, titulo TEXT, autor TEXT, status TEXT, dataDevolucao TEXT);'
-    );
-  });
-};
-
-// Carregar livros do SQLite
-const carregarLivros = (setLivros) => {
-  db.transaction((tx) => {
-    tx.executeSql(
-      'SELECT * FROM livros;',
-      [],
-      (tx, results) => {
-        const livros = [];
-        for (let i = 0; i < results.rows.length; i++) {
-          livros.push(results.rows.item(i));
-        }
-        setLivros(livros); // Atualiza o estado com os livros carregados
-      },
-      (err) => { console.error('Erro ao carregar livros', err); }
-    );
-  });
-};
-
-// Função para pegar emprestado
-const pegarEmprestado = (livro, setLivros) => {
-  if (!livro) {
-    console.error("Livro não encontrado");
-    return;
-  }
-
-  if (livro.status === 'Disponível') {
-    const dataDevolucao = calcularDataDevolucao();
-    db.transaction((tx) => {
-      tx.executeSql(
-        'UPDATE livros SET status = ?, dataDevolucao = ? WHERE id = ?',
-        ['Emprestado', dataDevolucao, livro.id],
-        () => {
-          console.log(`Livro "${livro.titulo}" emprestado com sucesso!`);
-          carregarLivros(setLivros); // Atualiza os livros após o empréstimo
-        },
-        (err) => { console.error('Erro ao pegar livro emprestado', err); }
-      );
-    });
-  }
-};
-
-// Configuração da API com Axios
-const BASE_URL = 'https://api.seuservidor.com/livros';
-
-// Função para carregar livros da API remota
-const carregarLivrosAPI = async (setLivros) => {
-  try {
-    const response = await axios.get(BASE_URL);
-    setLivros(response.data); // Atualiza o estado com os dados da API
-  } catch (error) {
-    console.error('Erro ao carregar livros da API', error);
-  }
-};
-
-// Autenticação com Firebase
-const login = async (email, senha) => {
-  try {
-    await auth().signInWithEmailAndPassword(email, senha);
-    console.log('Usuário logado com sucesso');
-  } catch (error) {
-    console.error('Erro ao logar', error);
-  }
-};
-
-const Stack = createStackNavigator();
-
-export default function App() {
+const App = () => {
   const [livros, setLivros] = useState([]);
-  const [livroSelecionado, setLivroSelecionado] = useState(null);
   const [pesquisa, setPesquisa] = useState('');
+  const [livroSelecionado, setLivroSelecionado] = useState(null);
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [usuarioLogado, setUsuarioLogado] = useState(false);
 
-  // Carregar livros ao iniciar
-  useEffect(() => {
-    criarTabelaLivros(); // Cria a tabela de livros no SQLite
-    carregarLivros(setLivros); // Carrega os livros do SQLite
-  }, []);
+  // Carregar livros da API remota (Servidor Express)
+  const loadLivros = async () => {
+    try {
+      const response = await axios.get('http://localhost:3000/livros'); // A URL da sua API
+      setLivros(response.data);
+    } catch (error) {
+      console.error('Erro ao carregar livros da API', error);
+    }
+  };
 
-  // Função para filtrar livros baseado na pesquisa
+  // Função de login com Firebase
+  const loginUsuario = async () => {
+    try {
+      await auth().signInWithEmailAndPassword(email, senha);
+      console.log('Usuário logado com sucesso!');
+      setUsuarioLogado(true);
+    } catch (error) {
+      console.error('Erro ao fazer login:', error.message);
+    }
+  };
+
+  // Função de logout com Firebase
+  const logoutUsuario = async () => {
+    try {
+      await auth().signOut();
+      console.log('Usuário deslogado com sucesso!');
+      setUsuarioLogado(false);
+    } catch (error) {
+      console.error('Erro ao deslogar:', error.message);
+    }
+  };
+
+  // Filtrar livros pela pesquisa
   const filtrarLivros = () => {
     if (pesquisa.trim() === '') {
       return livros;
     }
-    return livros.filter((livro) => livro.titulo.toLowerCase().includes(pesquisa.toLowerCase()));
+    return livros.filter((livro) =>
+      livro.titulo.toLowerCase().includes(pesquisa.toLowerCase())
+    );
   };
 
-  // Tela Home com lista de livros
-  const HomeScreen = () => (
-    <View style={styles.container}>
-      <Text style={styles.title}>Biblioteca Comunitária Saberes by Leitura Para Todos</Text>
+  // Função para pegar emprestado
+  const pegarEmprestado = (livro) => {
+    if (livro.status === 'Disponível') {
+      const updatedLivros = livros.map((item) => {
+        if (item.id === livro.id) {
+          return { ...item, status: 'Emprestado' };
+        }
+        return item;
+      });
+      setLivros(updatedLivros);
+    }
+  };
 
-      {/* Campo de pesquisa */}
+  useEffect(() => {
+    if (usuarioLogado) {
+      loadLivros(); // Carregar livros após login
+    }
+  }, [usuarioLogado]);
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Biblioteca Comunitária</Text>
+
+      {/* Login */}
+      {!usuarioLogado ? (
+        <View>
+          <TextInput
+            style={styles.input}
+            placeholder="Email"
+            value={email}
+            onChangeText={setEmail}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Senha"
+            secureTextEntry
+            value={senha}
+            onChangeText={setSenha}
+          />
+          <Button title="Login" onPress={loginUsuario} />
+        </View>
+      ) : (
+        <Button title="Logout" onPress={logoutUsuario} />
+      )}
+
+      {/* Pesquisa */}
       <TextInput
+        style={styles.input}
         placeholder="Pesquisar por título"
         value={pesquisa}
         onChangeText={setPesquisa}
-        style={styles.input}
       />
-      <Button title="Pesquisar" onPress={() => setPesquisa(pesquisa)} />
+      <Button title="Pesquisar" onPress={() => {}} />
 
+      {/* Lista de Livros */}
       <FlatList
         data={filtrarLivros()}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.id.toString()}
         renderItem={({ item }) => (
           <View style={styles.bookItem}>
-            <Text style={styles.bookText}>Título: {item.titulo}</Text>
-            <Text style={styles.bookText}>Autor: {item.autor}</Text>
-            <Text style={styles.bookText}>Status: {item.status}</Text>
-            {item.status === 'Emprestado' && (
-              <Text style={styles.bookText}>Data de Devolução: {item.dataDevolucao}</Text>
-            )}
+            <Text>{item.titulo}</Text>
+            <Text>{item.autor}</Text>
+            <Text>Status: {item.status}</Text>
             {item.status === 'Disponível' && (
-              <Button
-                title="Pegar Emprestado"
-                onPress={() => setLivroSelecionado(item)} // Abre o modal ao clicar
-              />
+              <Button title="Pegar Emprestado" onPress={() => pegarEmprestado(item)} />
             )}
           </View>
         )}
       />
-
-      {/* Modal para confirmar o empréstimo */}
-      {livroSelecionado && (
-        <Modal
-          visible={true}
-          transparent={true}
-          animationType="slide"
-          onRequestClose={() => setLivroSelecionado(null)}
-        >
-          <View style={styles.modal}>
-            <Text style={styles.modalText}>Você deseja pegar o livro "{livroSelecionado.titulo}" emprestado?</Text>
-            <Button
-              title="Pegar Emprestado"
-              onPress={() => pegarEmprestado(livroSelecionado, setLivros)} // Confirma o empréstimo
-            />
-            <Button
-              title="Cancelar"
-              onPress={() => setLivroSelecionado(null)} // Fecha o modal
-            />
-          </View>
-        </Modal>
-      )}
     </View>
   );
+};
 
-  return (
-    <NavigationContainer>
-      <Stack.Navigator initialRouteName="Home">
-        <Stack.Screen name="Home" component={HomeScreen} />
-      </Stack.Navigator>
-    </NavigationContainer>
-  );
-}
-
-// Estilos para o aplicativo
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#B0C4DE', // Azul pincel
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#000', // Texto preto
-    marginBottom: 20,
   },
   input: {
-    borderWidth: 1,
-    padding: 10,
-    marginBottom: 10,
-    width: '80%',
+    height: 40,
     borderColor: '#ccc',
-    borderRadius: 5,
+    borderWidth: 1,
+    margin: 10,
+    paddingLeft: 10,
+    width: '80%',
   },
   bookItem: {
     padding: 10,
-    marginBottom: 10,
-    backgroundColor: '#fff',
+    margin: 5,
+    backgroundColor: '#f9f9f9',
     width: '80%',
-    borderRadius: 8,
-    borderColor: '#ddd',
-    borderWidth: 1,
-  },
-  bookText: {
-    fontSize: 16,
-    color: '#000', // Texto preto
-  },
-  modal: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)', // Fundo semitransparente
-  },
-  modalText: {
-    fontSize: 18,
-    color: '#fff',
-    marginBottom: 20,
   },
 });
+
+export default App;
